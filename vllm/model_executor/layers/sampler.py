@@ -41,6 +41,52 @@ def get_sampler() -> torch.nn.Module:
     return Sampler()
 
 
+def get_sampler_v2() -> torch.nn.Module:
+    from .logits_processor import _apply_logits_processors, accept_grammar
+
+    class SamplerWithGrammar(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self._sampler = get_sampler()
+
+        def forward(
+            self,
+            logits: torch.Tensor,
+            sampling_metadata: SamplingMetadata,
+        ) -> Optional[SamplerOutput]:
+            # compute logits
+            next_tokens: SamplerOutput = self._sampler(logits, sampling_metadata)
+
+            # check if the sampled tokens fit the grammars
+            tks = torch.tensor(
+                [o.samples[0].output_token for o in next_tokens.outputs])
+            accepted = accept_grammar(tks, sampling_metadata)
+            need_resample = torch.logical_not(accepted)
+            if accepted.all():
+                return next_tokens
+            # resample
+            # if the token is not valid, sample again.
+            # but first apply the grammar bitmask
+            # only apply logits processor when need_resample
+            logits = _apply_logits_processors(logits, sampling_metadata,
+                                            need_resample, False)
+            new_next_tokens: SamplerOutput = self._sampler(logits,
+                                                        sampling_metadata)
+
+            for i, replace in enumerate(need_resample.tolist()):
+                if replace:
+                    next_tokens.outputs[i] = new_next_tokens.outputs[i]
+
+            tks = torch.tensor(
+                [o.samples[0].output_token for o in next_tokens.outputs])
+            # matcher only accept next token when first round is not accepted.
+            accepted = accept_grammar(tks, sampling_metadata, need_resample)
+            assert accepted.all()
+            return next_tokens
+
+    return SamplerWithGrammar()
+
+
 # (num_token_ids, num_parent_ids) per sequence group.
 SampleResultType = List[Tuple[List[int], List[int]]]
 

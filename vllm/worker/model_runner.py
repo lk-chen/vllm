@@ -35,7 +35,7 @@ from vllm.lora.request import LoRARequest
 from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
 from vllm.model_executor import SamplingMetadata, SamplingMetadataCache
 from vllm.model_executor.layers.rotary_embedding import MRotaryEmbedding
-from vllm.model_executor.layers.sampler import SamplerOutput
+from vllm.model_executor.layers.sampler import SamplerOutput, get_sampler, get_sampler_v2
 from vllm.model_executor.model_loader import get_model
 from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
 from vllm.model_executor.models import supports_lora, supports_multimodal
@@ -1092,6 +1092,7 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
 
         # Lazy initialization
         self.model: nn.Module  # Set after load_model
+        self.sampler: nn.Module  # Set after load_model
         # Set after load_model.
         self.lora_manager: Optional[LRUCacheWorkerLoRAManager] = None
         self.prompt_adapter_manager: LRUCacheWorkerPromptAdapterManager = None
@@ -1173,6 +1174,11 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
                 self.model,
                 fullgraph=envs.VLLM_TEST_DYNAMO_FULLGRAPH_CAPTURE,
                 backend=backend)
+
+        if isinstance(self.model, SupportsSampleV2):
+            self.sampler = get_sampler_v2()
+        else:
+            self.sampler = get_sampler()
 
     def get_model(self) -> nn.Module:
         return self.model
@@ -1837,13 +1843,10 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             model_input.async_callback()
 
         # Sample the next token.
-        if isinstance(self.model, SupportsSampleV2):
-            output: SamplerOutput = self.model.samplev2(
-                logits=logits, sampling_metadata=model_input.sampling_metadata)
-        else:
-            output = self.model.sample(
-                logits=logits, sampling_metadata=model_input.sampling_metadata)
-
+        output: SamplerOutput = self.sampler(
+            logits=logits,
+            sampling_metadata=model_input.sampling_metadata,
+        )
         if (self.observability_config is not None
                 and self.observability_config.collect_model_forward_time
                 and output is not None):

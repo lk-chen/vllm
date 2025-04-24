@@ -249,41 +249,6 @@ class SupportsSampleV2:
                                        skip_grammar=True)
         return logits
 
-    def samplev2(
-        self,
-        logits: torch.Tensor,
-        sampling_metadata: SamplingMetadata,
-    ) -> Optional[SamplerOutput]:
-        # compute logits
-        next_tokens: SamplerOutput = self.sampler(logits, sampling_metadata)
-
-        # check if  the sampled tokens fit the grammars
-        tks = torch.tensor(
-            [o.samples[0].output_token for o in next_tokens.outputs])
-        accepted = accept_grammar(tks, sampling_metadata)
-        need_resample = torch.logical_not(accepted)
-        if accepted.all():
-            return next_tokens
-        # resample
-        # if the token is not valid, sample again.
-        # but first apply the grammar bitmask
-        # only apply logits processor when need_resample
-        logits = _apply_logits_processors(logits, sampling_metadata,
-                                          need_resample, False)
-        new_next_tokens: SamplerOutput = self.sampler(logits,
-                                                      sampling_metadata)
-
-        for i, replace in enumerate(need_resample.tolist()):
-            if replace:
-                next_tokens.outputs[i] = new_next_tokens.outputs[i]
-
-        tks = torch.tensor(
-            [o.samples[0].output_token for o in next_tokens.outputs])
-        # matcher only accept next token when first round is not accepted.
-        accepted = accept_grammar(tks, sampling_metadata, need_resample)
-        assert accepted.all()
-        return next_tokens
-
 
 # We can't use runtime_checkable with ClassVar for issubclass checks
 # so we need to treat the class as an instance and use isinstance instead
