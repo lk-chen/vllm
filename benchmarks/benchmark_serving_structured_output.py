@@ -162,20 +162,13 @@ def sample_requests(tokenizer: PreTrainedTokenizerBase,
 
     elif args.dataset == "grammar":
         schema = """
-        root ::= select_statement
-
-        select_statement ::= "SELECT " column " from " table " where " condition
-
-        column ::= "col_1 " | "col_2 "
-
-        table ::= "table_1 " | "table_2 "
-
-        condition ::= column "= " number
-
-        number ::= "1 " | "2 "
+        root        ::= en-char+ ([ \\t\\n] en-char+)*
+        en-char     ::= letter | digit | punctuation
+        letter      ::= [a-zA-Z]
+        digit       ::= [0-9]
+        punctuation ::= [!"#$%&'()*+,-./:;<=>?@[\\\\\\]^_`{|}~]
         """
-        prompt = "Generate an SQL query to show the 'username' \
-            and 'email' from the 'users' table."
+        prompt = "tell a story about Spring ,at least 1024 words"
 
         input_len = len(tokenizer(prompt).input_ids)
         print(f"Input length of the prompt: {input_len} tokens")
